@@ -1,0 +1,56 @@
+import os
+import ctypes
+import psutil
+
+PROCESS_ALL_ACCESS = 0x1F0FFF
+
+def get_process_pid(target_name):
+    for process in psutil.process_iter(['pid', 'name', 'exe', 'cmdline']):
+        if target_name.lower() in process.info['name'].lower() or (process.info['cmdline'] and any(target_name.lower() in arg.lower() for arg in process.info['cmdline'])):
+            return process.info['pid']
+    return None
+
+def dump_process_memory(pid):
+    kernel32 = ctypes.windll.kernel32
+    process_handle = kernel32.OpenProcess(PROCESS_ALL_ACCESS, False, pid)
+
+    if process_handle:
+        base_address = 0x0
+        buffer_size = 4096
+
+        folder_name = f'dumped_memory_{pid}'
+        desktop_path = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop')
+        folder_path = os.path.join(desktop_path, folder_name)
+        os.makedirs(folder_path, exist_ok=True)
+        print(f"Folder created: {folder_path}")
+
+        while True:
+            buffer = ctypes.create_string_buffer(buffer_size)
+            bytes_read = ctypes.c_ulong(0)
+
+            if not kernel32.ReadProcessMemory(process_handle, base_address, buffer, buffer_size, ctypes.byref(bytes_read)):
+                break
+
+            if bytes_read.value == 0:
+                break
+
+            file_path = os.path.join(folder_path, f'dump_{pid}.bin')
+            with open(file_path, 'ab') as f:
+                f.write(buffer.raw)
+
+            base_address += bytes_read.value
+
+        kernel32.CloseHandle(process_handle)
+        print(f"Memory dump complete for PID {pid}.")
+    else:
+        print("Failed to open the process.")
+
+if __name__ == "__main__":
+    target_process_name = 'target_process_name'
+
+    pid = get_process_pid(target_process_name)
+
+    if pid:
+        dump_process_memory(pid)
+    else:
+        print("Process not found.")
